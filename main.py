@@ -33,18 +33,11 @@ def grid_to_pix(pos):
 
 def between(board, pos1, pos2):
     diff = [int(i1<i2)*2-1 if i1!=i2 else 0 for i1, i2 in zip(pos1, pos2)]
-    print(pos1, pos2)
-    print(diff)
     pos1 = [pos1[i]+diff[i]if diff[i]else pos1[i]for i in[0,1]]
     while pos1 != pos2:
-        print(pos1)
         if board.get_piece(pos1):
-            p = board.get_piece(pos1)
-            print(p)
-            print(p.pos)
-            print(p.side)
             return True
-        pos1, diff = [[l[i]+diff[i]//abs(diff[i])if diff[i] else l[i]for i in[0,1]]for l in[pos1,diff]]
+        pos1 = [pos1[i]+diff[i]if diff[i]else pos1[i]for i in[0,1]]
     return False
 
 def pix_to_grid(pos):
