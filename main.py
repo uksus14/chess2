@@ -53,6 +53,11 @@ class Animations:
         countdown = (time()-start)*speed
         pos[1] -= 5*(1-exp(-countdown))
         return pos
+    def spin(pos, start, speed):
+        countdown = (time()-start)*speed
+        pos[0] += 3*cos(countdown)
+        pos[1] += 3*sin(countdown)
+        return pos
 
 class Map:
     def __init__(self, jail:bool):
@@ -82,6 +87,8 @@ class Piece:
         self.selected = False
 
     def select(self):
+        if Animations.spin in self.animations.keys():
+            self.animations.pop(Animations.spin)
         [self.animations.update({anim:(time(), speed)}) for anim, speed in SELECT_ANIMS]
         self.selected = True
     def deselect(self):
@@ -153,6 +160,7 @@ class Fish(Piece):
 class QFish(Piece):
     def init(self):
         self.sprite = qfish[int(self.side)]
+        self.animations.update({Animations.spin:(time(), 3)})
         return self
     def move(self, target):
         diff = tuple([i1-i2 for i1, i2 in zip(target, self.pos)])
@@ -200,7 +208,7 @@ def get_layout(board, jail):
     return grid
 
 
-SELECT_ANIMS = [(Animations.shake, 10), (Animations.rise, 5)]
+SELECT_ANIMS = [(Animations.shake, 7), (Animations.rise, 5)]
 board = Map(jail=False)
 
 clock = pg.time.Clock()
@@ -226,7 +234,7 @@ while run:
                         print("piece moved")
                     else:
                         print("target is out")
-                elif piece:
+                elif piece!="out" and piece:
                     piece.select()
                     print("piece selected")
     board.draw()
