@@ -1,7 +1,7 @@
 from turtle import width
 from PIL import Image, ImageDraw
 from os import listdir
-images = list(filter(lambda x:x[0] in "bw" and x[-3:]=="bmp" and x[-6:-4]!="_t", listdir("media")))
+images = list(filter(lambda x:x[0] in "bw" and x[-3:]=="png", listdir("media")))
 for name in images:
     image = Image.open(f"media/{name}")
     draw = ImageDraw.Draw(image)

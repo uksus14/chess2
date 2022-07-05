@@ -8,6 +8,7 @@ PIX_PER_CELL = 87
 BOARD_OFFSET = 100
 HEIGHT, WIDTH = [8*PIX_PER_CELL+2*BOARD_OFFSET]*2
 FPS = 60
+antiBLUE = (155, 55, 0)
 BG_COLOR = (100, 100, 100)
 
 def l(path):
@@ -31,6 +32,15 @@ rook =   [l(s+"rook")    for s in"bw"]
 def grid_to_pix(pos):
     return [pos[i]*PIX_PER_CELL+BOARD_OFFSET for i in range(2)]
 
+def diff(pos1, pos2):
+    return tuple([i1-i2 for i1, i2 in zip(pos2, pos1)])
+
+def hflip(*ls):
+    answers = []
+    for l in ls:
+        answers.append([(x,-y) for x,y in l])
+    return answers
+
 def between(board, pos1, pos2):
     diff = [int(i1<i2)*2-1 if i1!=i2 else 0 for i1, i2 in zip(pos1, pos2)]
     pos1 = [pos1[i]+diff[i]if diff[i]else pos1[i]for i in[0,1]]
@@ -45,18 +55,27 @@ def pix_to_grid(pos):
     return coord
 
 class Animations:
-    def shake(pos, start, speed):
-        countdown = (time()-start)*speed
-        pos[0] += 10*sin(countdown)
+    def shake(pos, start, speed, duration):
+        if duration is None:
+            return Animations.shake(pos, start, speed, time()-start+1)
+        elif time()<start+duration:
+            countdown = (time()-start)*speed
+            pos[0] += 10*sin(countdown)
         return pos
-    def rise(pos, start, speed):
-        countdown = (time()-start)*speed
-        pos[1] -= 5*(1-exp(-countdown))
+    def rise(pos, start, speed, duration):
+        if duration is None:
+            return Animations.rise(pos, start, speed, time()-start+1)
+        elif time()<start+duration:
+            countdown = (time()-start)*speed
+            pos[1] -= 5*(1-exp(-countdown))
         return pos
-    def spin(pos, start, speed):
-        countdown = (time()-start)*speed
-        pos[0] += 3*cos(countdown)
-        pos[1] += 3*sin(countdown)
+    def spin(pos, start, speed, duration):
+        if duration is None:
+            return Animations.spin(pos, start, speed, time()-start+1)
+        elif time()<start+duration:
+            countdown = (time()-start)*speed
+            pos[0] += 3*cos(countdown)
+            pos[1] += 3*sin(countdown)
         return pos
 
 class Map:
@@ -69,6 +88,7 @@ class Map:
         return "out"
     def draw(self):
         screen.fill(BG_COLOR)
+        [[pg.draw.rect(screen, tuple([255-_1*_2 for _1, _2 in zip([(x+y)%2]*3, antiBLUE)]), (x*PIX_PER_CELL+BOARD_OFFSET, y*PIX_PER_CELL+BOARD_OFFSET, PIX_PER_CELL, PIX_PER_CELL)) for x in range(8)] for y in range(8)]
         [[cell.draw() for cell in row if cell] for row in self.grid]
     def is_piece_selected(self):
         is_selected = {}
@@ -76,7 +96,10 @@ class Map:
         if True in is_selected.keys():
             return is_selected[True]
         return None
-
+    def is_danger(self, pos):
+        danger = set()
+        [[danger.union(*piece.atacks()) for piece in row if piece] for y, row in enumerate(self.grid)]
+        print(danger)
 class Piece:
     def __init__(self, board:Map, position:list[int], side:bool):
         self.board = board
@@ -85,23 +108,44 @@ class Piece:
         self.animations = {}
         self.sprite = placeholder
         self.selected = False
+        self.to_move = [(0, 0)]
+        self.is_important = False
+        self.to_take = [(0, 0)]
 
     def select(self):
         if Animations.spin in self.animations.keys():
             self.animations.pop(Animations.spin)
-        [self.animations.update({anim:(time(), speed)}) for anim, speed in SELECT_ANIMS]
+        [self.animations.update({anim:(time(), speed, duration)}) for anim, speed, duration in SELECT_ANIMS]
         self.selected = True
     def deselect(self):
-        [self.animations.pop(anim) for anim, speed in SELECT_ANIMS]
+        [self.animations.pop(anim) for anim, speed, duration in SELECT_ANIMS]
         self.selected = False
     def move(self, target):
+        shift = diff(self.pos, target)
+        take = self.board.get_piece(target)
+        if between(self.board, self.pos, target):
+            return False
+        if take:
+            if take.side == self.side or shift not in self.to_take:
+                return False
+        elif shift not in self.to_move:
+            return False
+        
+        if self.is_important:
+            danger = self.board.is_danger(target)
+            if danger:
+                danger.animations.update({Animations.shake: (time(), 14, 0.5)})
         grid, pos = self.board.grid, self.pos
-        grid[target[1]][target[0]] = grid[pos[1]][pos[0]]
+        take = self.board.get_piece(target)
+        if take:
+            if take.is_important:
+                self.board.add_to_jail(take)
+        grid[target[1]][target[0]] = self
         grid[pos[1]][pos[0]] = None
         self.pos = target
         self.deselect()
     def draw(self):
-        draw_pos = reduce(lambda pos,anim:anim[0](pos, anim[1][0], anim[1][1]), [grid_to_pix(self.pos)]+list(self.animations.items()))
+        draw_pos = reduce(lambda pos,anim:anim[0](pos, *anim[1]), [grid_to_pix(self.pos)]+list(self.animations.items()))
         screen.blit(self.sprite, self.sprite.get_rect(topleft=draw_pos))
 
 """
@@ -121,61 +165,51 @@ F = SuperFish
 e = Elephant
 """
 
+class King(Piece):
+    def init(self):
+        self.sprite = king[int(self.side)]
+        self.animations.update({Animations.spin:(time(), 3, None)})
+        self.to_move = [
+            (-1, 1),(0, 1),(1, 1),
+            (-1, 0),(0, 0),(1, 0),
+            (-1,-1),(0,-1),(1,-1),
+        ]
+        self.to_take = self.to_move
+        self.is_important = True
+        return self
 class Castle(Piece):
     def init(self):
-        self.sprite = castle
-    def move(self, target):
-        if all([target[i] not in self.pos for i in range(2)]):
-            return self, Animations.shake
-        self.pos = target
-
+        self.sprite = castle[int(self.side)]
+        self.to_move = [(x,0) for x in range(-7,7)]+[(0,y) for y in range(-7,7)]
+        self.to_take = self.to_move
+        return self
 class Fish(Piece):
     def init(self):
         self.sprite = fish[int(self.side)]
-    def move(self, target):
-        diff = tuple([i1-i2 for i1, i2 in zip(target, self.pos)])
-        to_move = [
+        self.to_move = [
             (-1,1),(0,1),(1,1),
             (-1,0),(0,0),(1,0),
         ]
-        to_take = [
+        self.to_take = [
             (-1,1),     (1,1),
                    (0,0),
         ]
         if self.side:
-            to_take, to_move = [[(x,-y) for x,y in l] for l in (to_take, to_move)]
-        take = self.board.get_piece(target)
-        go = False
-        if take:
-            if take.side != self.side and diff in to_take:
-                go = True
-        elif diff in to_move:
-            go = True
-        if go:
-            super().move(target)
-            if target[1] == int(not self.side)*7:
-                self.board.grid[target[1]][target[0]] = QFish(self.board, target, self.side).init()
-            return "end-move"
+            self.to_take, self.to_move = hflip(self.to_take, self.to_move)
+        return self
+    def move(self, target):
+        answer = super().move(target)
+        if self.pos[1] == int(not self.side)*7:
+            self.board.grid[self.pos[1]][self.pos[0]] = QFish(self.board, target, self.side).init()
+        return answer
 
 class QFish(Piece):
     def init(self):
         self.sprite = qfish[int(self.side)]
-        self.animations.update({Animations.spin:(time(), 3)})
+        self.animations.update({Animations.spin:(time(), 3, None)})
+        self.to_move = [(x,0) for x in range(-7,7)]+[(0,y) for y in range(-7,7)]+[(i,-i) for i in range(-7,7)]+[(i,i) for i in range(-7, 7)]
+        self.to_take = self.to_move
         return self
-    def move(self, target):
-        diff = tuple([i1-i2 for i1, i2 in zip(target, self.pos)])
-        to_move = [(x,0) for x in range(-7,7)]+[(0,y) for y in range(-7,7)]+[(i,-i) for i in range(-7,7)]+[(i,i) for i in range(-7, 7)]
-        take = self.board.get_piece(target)
-        go = False
-        if take:
-            if take.side != self.side and diff in to_move and not between(self.board, self.pos, target):
-                go = True
-        elif diff in to_move and not between(self.board, self.pos, target):
-            go = True
-        if go:
-            super().move(target)
-            return "end-move"
-
 
 def get_setup_file():
     try:
@@ -190,6 +224,7 @@ def get_layout(board, jail):
     setup = get_setup_file()
     grid = []
     grid = [[Fish(board, [x, y], bool(y//4)) if abs(y-3.5)>2 else None for x in range(8)] for y in range(8)]
+    grid[0][4], grid[-1][4] = King(board, [4, 0], False), King(board, [4, 7], True)
     try:
         12/0
         pieces, layout = setup.split("layout")
@@ -208,7 +243,7 @@ def get_layout(board, jail):
     return grid
 
 
-SELECT_ANIMS = [(Animations.shake, 7), (Animations.rise, 5)]
+SELECT_ANIMS = [(Animations.shake, 7, None), (Animations.rise, 5, None)]
 board = Map(jail=False)
 
 clock = pg.time.Clock()
